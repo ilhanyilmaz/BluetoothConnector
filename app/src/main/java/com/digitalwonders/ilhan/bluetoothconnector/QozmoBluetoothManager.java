@@ -22,46 +22,57 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.UUID;
 
 /**
  * Created by ilhan on 06.08.2015.
+ *
+ * 1- Create instance with your activity
+ *      QozmoBluetoothManager qbm = new QozmoBluetoothManager(this);
+ *
+ * 2- Set action listener to your activity which implements QozmoActionListener
+ *      qbm.setOnQozmoActionListener(this);
+ *
+ * 3- Implement QozmoActionListener function in your activity
+ *      void onQozmoAction(int action, String message);
+ *
+ * 4- Send message to Qozmo using:
+ *      qbm.sendMessageToDevice(message);
+ *
  */
 
 public class QozmoBluetoothManager {
 
-    public static final int MSG_CONNECTED = 1;
-    public static final int MSG_READ = 2;
+    public static final int ACTION_CONNECTED = 1;
+    public static final int ACTION_MSG_READ = 2;
+
+    private static final int REQUEST_ENABLE_BT = 1;
     private static final String TAG = "DeviceListActivity";
-    public static String EXTRA_DEVICE_ADDRESS = "device_address";
-    private static String DEVICE_NAME = "QozmoNode";
+    private static final String DEVICE_NAME = "QozmoNode";
 
-    private BluetoothAdapter mBluetoothAdapter;
-    //private ArrayAdapter<String> mNewDevicesArrayAdapter;
     private Activity mActivity;
-    private QozmoConnectionListener mConnectionListener;
+    private BluetoothAdapter mBluetoothAdapter;
+    private QozmoActionListener mConnectionListener;
     private ArrayAdapter<String> mArrayAdapter;
-    private final static int REQUEST_ENABLE_BT = 1;
-    private ArrayList<BluetoothDevice> devices;
-    private ArrayList<UUID> deviceUUIDS;
-    private AlertDialog.Builder mBuilderSingle;
     private ConnectedThread mConnectedThread;
+    private ArrayList<BluetoothDevice> mDevices;
+    private UUID mDeviceUUID = null;
+    private AlertDialog.Builder mBuilderSingle;
+    private ProgressDialog mProgress;
 
-    public QozmoBluetoothManager(Activity activity) {
-        // Setup the window
-        mActivity = activity;
-
-        // Get the local Bluetooth adapter
-        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-
-
-
-
-
+    public interface QozmoActionListener {
+        void onQozmoAction(int action, String message);
     }
 
-    public void setOnQozmoConnectionListener(QozmoConnectionListener q) {
+    public QozmoBluetoothManager(Activity activity) {
+
+        mActivity = activity;
+        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        mProgress = new ProgressDialog(mActivity);
+        createListDialog();
+    }
+
+    public void setOnQozmoActionListener(QozmoActionListener q) {
         mConnectionListener = q;
     }
 
@@ -85,6 +96,15 @@ public class QozmoBluetoothManager {
             mActivity.registerReceiver(mReceiver, filter);
             doDiscovery();
         }
+    }
+
+    private void createListDialog() {
+
+        mDevices = new ArrayList<>();
+
+        mArrayAdapter = new ArrayAdapter<>(
+                mActivity,
+                android.R.layout.select_dialog_singlechoice);
 
         mBuilderSingle = new AlertDialog.Builder(
                 mActivity);
@@ -96,6 +116,8 @@ public class QozmoBluetoothManager {
 
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
+
+                        mBluetoothAdapter.cancelDiscovery();
                         dialog.dismiss();
                     }
                 });
@@ -105,19 +127,33 @@ public class QozmoBluetoothManager {
 
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
+
                         final String strName = mArrayAdapter.getItem(which);
 
-                        Log.i(TAG, "Connecting to device " + which + " : " + strName);
-                        new ConnectThread(devices.get(which)).start();
+                        displayDialog("Connecting", "Connecting to device " + strName);
+
+                        BluetoothDevice device = mDevices.get(which);
+
+                        if (mBluetoothAdapter.isDiscovering()) {
+                            mBluetoothAdapter.cancelDiscovery();
+                        }
+
+                        if (!device.fetchUuidsWithSdp()) {
+                            Log.i(TAG, "\nSDP Failed for " + device.getName());
+                        }
+
+                        //Log.i(TAG, "Connecting to device " + which + " : " + strName);
+
                         dialog.dismiss();
+
                     }
                 });
     }
+    private void displayDialog(String title, String message) {
 
-
-    public interface QozmoConnectionListener {
-        void onQozmoConnected(String s);
-        void onQozmoMessageReceived(String message);
+        mProgress.setTitle(title);
+        mProgress.setMessage(message);
+        mProgress.show();
     }
 
     protected void close() {
@@ -130,42 +166,22 @@ public class QozmoBluetoothManager {
 
         // Unregister broadcast listeners
         mActivity.unregisterReceiver(mReceiver);
+
+        if(mConnectedThread!=null)
+            mConnectedThread.cancel();
     }
 
-    private ProgressDialog mProgress;
+
     public void doDiscovery() {
+
+
         Log.d(TAG, "doDiscovery()");
 
-        // Indicate scanning in the title
-        //mActivity.setProgressBarIndeterminateVisibility(true);
+        mDevices.clear();
+        mArrayAdapter.clear();
+        mBuilderSingle.show();
+        displayDialog("Searching", "Searching for Qozmo Devices...");
 
-        mProgress = new ProgressDialog(mActivity);
-        mProgress.setTitle("Searching");
-        mProgress.setMessage("Wait while searching...");
-        mProgress.show();
-
-        // To dismiss the dialog
-
-        /*
-        // Get a set of currently paired devices
-        Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
-
-        // If there are paired devices, add each one to the ArrayAdapter
-        if (pairedDevices.size() > 0) {
-            for (BluetoothDevice device : pairedDevices) {
-                mArrayAdapter.add(device.getName() + "\n" + device.getAddress());
-            }
-        } else {
-            String noDevices = "No device found!";
-            mArrayAdapter.add(noDevices);
-        }*/
-
-        mArrayAdapter = new ArrayAdapter<String>(
-                mActivity,
-                android.R.layout.select_dialog_singlechoice);
-
-        devices = new ArrayList<>();
-        deviceUUIDS = new ArrayList<>();
         // If we're already discovering, stop it
         if (mBluetoothAdapter.isDiscovering()) {
             mBluetoothAdapter.cancelDiscovery();
@@ -182,36 +198,29 @@ public class QozmoBluetoothManager {
 
             // When discovery finds a device
             if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+
                 // Get the BluetoothDevice object from the Intent
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 // If it's already paired, skip it, because it's been listed already
-                //if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
                 if(device.getName().equals(DEVICE_NAME)) {
+                    mProgress.dismiss();
                     mArrayAdapter.add(device.getName() + "\n" + device.getAddress());
-                    devices.add(device);
+                    mDevices.add(device);
                 }
                 // When discovery is finished, change the Activity title
             } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
                 Log.i(TAG, "Discovery finished!");
 
 
-                Iterator<BluetoothDevice> itr = devices.iterator();
-                while (itr.hasNext()) {
-                    // Get Services for paired devices
-                    BluetoothDevice device = itr.next();
-                    Log.i(TAG, "\nGetting Services for " + device.getName() + ", " + device);
-                    if (!device.fetchUuidsWithSdp()) {
-                        Log.i(TAG, "\nSDP Failed for " + device.getName());
-                    }
-                }
+
 
                 //mActivity.setProgressBarIndeterminateVisibility(false);
                 //setTitle(R.string.select_device);
                 if (mArrayAdapter.getCount() == 0) {
                     //String noDevices = getResources().getText(R.string.none_found).toString();
                     String noDevices = "No device found!";
-                    Log.i("Qozmo", noDevices);
-                    //mArrayAdapter.add(noDevices);
+                    Log.i(TAG, noDevices);
+                    mArrayAdapter.add(noDevices);
                 }
             } else if (action.equals(BluetoothAdapter.ACTION_STATE_CHANGED)) {
                 final int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE,
@@ -224,6 +233,7 @@ public class QozmoBluetoothManager {
 
                         break;
                     case BluetoothAdapter.STATE_ON:
+                        Log.i(TAG, "Bluetooth is on!");
                         doDiscovery();
                         break;
                     case BluetoothAdapter.STATE_TURNING_ON:
@@ -233,18 +243,19 @@ public class QozmoBluetoothManager {
             } else if (action.equals(BluetoothDevice.ACTION_UUID)) {
                 if(mAlreadyFetched)
                     return;
-                //final int state = intent.getIntExtra(BluetoothDevice.EXTRA_UUID, BluetoothDevice.ERROR);
-                //Log.i(TAG, "state: " + state);
+
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 Parcelable[] uuidExtra = intent.getParcelableArrayExtra(BluetoothDevice.EXTRA_UUID);
 
-                for (int i=0; i<uuidExtra.length; i++) {
+                mDeviceUUID = UUID.fromString(uuidExtra[0].toString());
+
+                new ConnectThread(device).start();
+                /*for (int i=0; i<uuidExtra.length; i++) {
                     deviceUUIDS.add(UUID.fromString(uuidExtra[i].toString()));
                     Log.i(TAG, "\n  Device: " + device.getName() + ", " + device + ", Service: " + uuidExtra[i].toString());
-                }
+                }*/
 
                 mProgress.dismiss();
-                mBuilderSingle.show();
 
                 mAlreadyFetched = true;
             }
@@ -266,9 +277,11 @@ public class QozmoBluetoothManager {
             try {
 
                 // MY_UUID is the app's UUID string, also used by the server code
-                tmp = device.createRfcommSocketToServiceRecord(deviceUUIDS.get(0));
+                tmp = device.createRfcommSocketToServiceRecord(mDeviceUUID);
                 //tmp = device.createInsecureRfcommSocketToServiceRecord(deviceUUIDS.get(0));
-            } catch (IOException e) { }
+            } catch (IOException e) {
+                Log.e(TAG, e.toString());
+            }
             mmSocket = tmp;
         }
 
@@ -281,14 +294,16 @@ public class QozmoBluetoothManager {
                 // until it succeeds or throws an exception
                 Log.i(TAG, "Connecting...");
                 mmSocket.connect();
-                mHandler.obtainMessage(MSG_CONNECTED)
+                mHandler.obtainMessage(ACTION_CONNECTED)
                         .sendToTarget();
             } catch (IOException connectException) {
                 Log.e(TAG, "Connection problem!");
                 // Unable to connect; close the socket and get out
                 try {
                     mmSocket.close();
-                } catch (IOException closeException) { }
+                } catch (IOException closeException) {
+                    Log.e(TAG, closeException.toString());
+                }
                 return;
             }
 
@@ -300,7 +315,9 @@ public class QozmoBluetoothManager {
         public void cancel() {
             try {
                 mmSocket.close();
-            } catch (IOException e) { }
+            } catch (IOException e) {
+                Log.e(TAG, e.toString());
+            }
         }
     }
 
@@ -335,7 +352,9 @@ public class QozmoBluetoothManager {
             try {
                 tmpIn = socket.getInputStream();
                 tmpOut = socket.getOutputStream();
-            } catch (IOException e) { }
+            } catch (IOException e) {
+                Log.e(TAG, e.toString());
+            }
 
             mmInStream = tmpIn;
             mmOutStream = tmpOut;
@@ -351,7 +370,7 @@ public class QozmoBluetoothManager {
                     // Read from the InputStream
                     bytes = mmInStream.read(buffer);
                     // Send the obtained bytes to the UI activity
-                    mHandler.obtainMessage(MSG_READ, bytes, -1, buffer)
+                    mHandler.obtainMessage(ACTION_MSG_READ, bytes, -1, buffer)
                             .sendToTarget();
                 } catch (IOException e) {
                     break;
@@ -363,14 +382,18 @@ public class QozmoBluetoothManager {
         public void write(byte[] bytes) {
             try {
                 mmOutStream.write(bytes);
-            } catch (IOException e) { }
+            } catch (IOException e) {
+                Log.e(TAG, e.toString());
+            }
         }
 
         // Call this from the main activity to shutdown the connection
         public void cancel() {
             try {
                 mmSocket.close();
-            } catch (IOException e) { }
+            } catch (IOException e) {
+                Log.e(TAG, e.toString());
+            }
         }
     }
     private String receivedMessage = "";
@@ -383,12 +406,12 @@ public class QozmoBluetoothManager {
             String sMsg;
             char EOT = (char)3;
             switch (msg.what) {
-                case MSG_CONNECTED:
+                case ACTION_CONNECTED:
 
                     //mAlreadyFetched = true;
-                    mConnectionListener.onQozmoConnected("hede hede");
+                    mConnectionListener.onQozmoAction(ACTION_CONNECTED, "");
                     break;
-                case MSG_READ:
+                case ACTION_MSG_READ:
 
                     byte[] bytes = (byte[])msg.obj;
                     try {
@@ -396,7 +419,7 @@ public class QozmoBluetoothManager {
                         sMsg = sMsg.substring(0, msg.arg1);
                         receivedMessage = receivedMessage.concat(sMsg);
                         if(sMsg.indexOf(EOT)>-1) {
-                            mConnectionListener.onQozmoMessageReceived(receivedMessage);
+                            mConnectionListener.onQozmoAction(ACTION_MSG_READ, receivedMessage);
                             receivedMessage = "";
                         }
                         //Log.i(TAG, "message received: " + sMsg);

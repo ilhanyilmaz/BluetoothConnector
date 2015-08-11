@@ -12,7 +12,7 @@ import android.widget.TextView;
 
 import java.io.UnsupportedEncodingException;
 
-public class MainActivity extends AppCompatActivity implements QozmoBluetoothManager.QozmoConnectionListener {
+public class MainActivity extends AppCompatActivity implements QozmoBluetoothManager.QozmoActionListener {
 
     private static final String TAG = "BluetoothConnector";
     private QozmoBluetoothManager qbm;
@@ -21,7 +21,7 @@ public class MainActivity extends AppCompatActivity implements QozmoBluetoothMan
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         qbm = new QozmoBluetoothManager(this);
-        qbm.setOnQozmoConnectionListener(this);
+        qbm.setOnQozmoActionListener(this);
         findViewById(R.id.button).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -31,8 +31,8 @@ public class MainActivity extends AppCompatActivity implements QozmoBluetoothMan
         findViewById(R.id.button2).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                String message = ((EditText)findViewById(R.id.edit_text)).getText().toString();
-                if(message.length() > 0) {
+                String message = ((EditText) findViewById(R.id.edit_text)).getText().toString();
+                if (message.length() > 0) {
                     qbm.sendMessageToDevice(message);
                     Log.i(TAG, "sending message: " + message);
                 }
@@ -67,18 +67,22 @@ public class MainActivity extends AppCompatActivity implements QozmoBluetoothMan
     }
 
     @Override
-    public void onQozmoConnected(String s) {
-        Log.i(TAG, s);
-        findViewById(R.id.edit_text).setEnabled(true);
-        findViewById(R.id.button2).setEnabled(true);
+    public void onDestroy() {
+        qbm.close();
+        super.onDestroy();
     }
 
     @Override
-    public void onQozmoMessageReceived(String msg) {
+    public void onQozmoAction(int action, String msg) {
+        Log.i(TAG, msg);
+        switch (action) {
+            case QozmoBluetoothManager.ACTION_CONNECTED:
+                findViewById(R.id.edit_text).setEnabled(true);
+                findViewById(R.id.button2).setEnabled(true);
+                break;
+            case QozmoBluetoothManager.ACTION_MSG_READ:
+                ((TextView)findViewById(R.id.textView)).setText(msg);
+        }
 
-        Log.i(TAG, "Message: " + msg);
-        ((TextView)findViewById(R.id.textView)).setText(msg);
     }
-
-
 }
