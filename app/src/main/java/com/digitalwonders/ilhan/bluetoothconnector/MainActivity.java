@@ -80,8 +80,14 @@ public class MainActivity extends AppCompatActivity implements QozmoBluetoothMan
                 findViewById(R.id.edit_text).setEnabled(true);
                 findViewById(R.id.button2).setEnabled(true);
                 break;
+            case QozmoBluetoothManager.ACTION_DISCONNECTED:
+                findViewById(R.id.edit_text).setEnabled(false);
+                findViewById(R.id.button2).setEnabled(false);
+                break;
             case QozmoBluetoothManager.ACTION_MSG_READ:
                 ((TextView)findViewById(R.id.textView)).setText(msg);
+                break;
+
         }
 
     }
